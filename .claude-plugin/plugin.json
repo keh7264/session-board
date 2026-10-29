@@ -1,0 +1,7 @@
+{
+  "name": "session-board",
+  "version": "0.1.0",
+  "description": "입력창 위에 이 세션에서 하는 일과 사용자가 정할 것을 띄우는 띠",
+  "types": "./types/index.d.ts",
+  "license": "MIT"
+}
