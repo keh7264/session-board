@@ -172,7 +172,7 @@ export const register: Register = on => {
       isDeferred: false,
     })
     await loadCarry($)
-    await $.command.register({ name: 'board', description: '모든 세션의 하는 일과 정할 것을 옆 창에 띄운다' })
+    await $.command.register({ name: 'board', description: '모든 세션의 하는 일과 정할 것을 옆 창에 띄운다', immediate: true })
     if (e.isInteractive) {
       await loadOthers($)
       $.clock.every(15_000, () => void loadOthers($).then(() => applyDismissed($)))
