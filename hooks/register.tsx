@@ -16,6 +16,7 @@ const INK = '#1F1F2E'
 const SKY_SOFT = '#D8F0FF'
 const SKY_DEEP = '#1E78B4'
 const STALE_MS = 24 * 60 * 60 * 1000
+const CARRY_MS = 30 * 24 * 60 * 60 * 1000
 
 const GUIDE = [
   '# 세션 띠 (session-board)',
@@ -36,10 +37,41 @@ async function label($: EngineInterface) {
   return cwd.split('/').filter(Boolean).pop() ?? cwd
 }
 
+async function carryPath($: EngineInterface) {
+  const cwd = await $.session.cwd()
+  return `${await dir($)}/carry/${cwd.replace(/[^A-Za-z0-9._-]/g, '_')}.json`
+}
+
 async function publish($: EngineInterface, b: Board) {
   const sessionId = await $.session.id()
   const entry: Entry = { ...b, sessionId, label: await label($) }
   await $.fs.write(`${await dir($)}/${sessionId}.json`, JSON.stringify(entry))
+  await $.fs.write(await carryPath($), JSON.stringify(b))
+}
+
+async function loadCarry($: EngineInterface) {
+  if (await read($, board)) return
+  try {
+    const path = await carryPath($)
+    if (!(await $.fs.exists(path))) return
+    const b = JSON.parse(await $.fs.read(path)) as Board
+    if ((await $.clock.now()) - b.updatedAt > CARRY_MS) return
+    if (!b.task && b.decisions.length === 0) return
+    const next: Board = { ...b, doing: null, carriedFrom: b.carriedFrom ?? b.updatedAt }
+    await update($, board, () => next)
+    await publish($, next)
+  } catch {}
+}
+
+function boardNote(b: Board | null) {
+  if (!b) return ''
+  return [
+    '',
+    b.carriedFrom ? '지금 띠 (지난 세션에서 이어받은 내용. 이 세션에서 아직 고치지 않았다):' : '지금 띠:',
+    `- task: ${b.task}`,
+    ...(b.decisions.length ? b.decisions.map(d => `- decision: ${d}`) : ['- decision: 없음']),
+    b.carriedFrom ? '이어받은 결정 중 이미 끝났거나 필요 없어진 것이 보이면 다음 갱신 때 뺀다.' : '',
+  ].filter(Boolean).join('\n')
 }
 
 async function readDismissed($: EngineInterface, sessionId: string): Promise<string[]> {
@@ -139,6 +171,7 @@ export const register: Register = on => {
       },
       isDeferred: false,
     })
+    await loadCarry($)
     await $.command.register({ name: 'board', description: '모든 세션의 하는 일과 정할 것을 옆 창에 띄운다' })
     if (e.isInteractive) {
       await loadOthers($)
@@ -198,7 +231,8 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const out = await next(e)
     if (!e.tools.includes(TOOL)) return out
-    return { sections: [...out.sections, { id: 'session-board:guide', text: GUIDE, scope: 'session' as const }] }
+    const text = GUIDE + boardNote(await read($, board))
+    return { sections: [...out.sections, { id: 'session-board:guide', text, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -285,6 +319,7 @@ export const register: Register = on => {
     const rest = await read($, others)
     const restDecisions = rest.reduce((n, x) => n + x.decisions.length, 0)
     const count = b.decisions.length
+    const now = await $.clock.now()
     const boardOpen = await read($, isBoardOpen)
 
     const actions = (
@@ -337,6 +372,7 @@ export const register: Register = on => {
         <Box key="task" columnGap={1}>
           {chip('now', 'Now', PINK)}
           <Box flexShrink={1}><Text bold>{b.task}</Text></Box>
+          {b.carriedFrom ? <Box flexShrink={0}><Text dimColor italic>{`· 지난 세션에서 이어받음 (${ago(now, b.carriedFrom)})`}</Text></Box> : null}
         </Box>
         {b.doing ? (
           <Box key="doing" columnGap={1} paddingLeft={1}>

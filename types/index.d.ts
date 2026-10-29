@@ -3,6 +3,7 @@ export type Board = {
   doing: string | null
   decisions: string[]
   updatedAt: number
+  carriedFrom?: number
 }
 
 export type Entry = Board & { sessionId: string; label: string }
