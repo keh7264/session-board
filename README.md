@@ -1,36 +1,54 @@
 # session-board
 
-Claude Code 입력창 위에 **이 세션에서 지금 하는 일(Now)** 과 **사용자가 정할 것(Decisions)** 을 띄우는 mod.
-세션의 Claude 가 `set_board` 도구로 직접 갱신한다 — 새 일을 시작할 때, 단계가 바뀔 때, 정할 것이 생기거나 정해졌을 때.
+Claude Code 세션을 여러 개 띄워 놓고 일하다 보면, 어느 창에서 무슨 일을 하고 있었는지, 그리고 Claude 가 나한테 물어보고 답을 기다리는 게 뭐였는지 자꾸 잊어버리게 됩니다. 대화를 위로 한참 올려 봐야 겨우 찾을 때도 많고요.
 
-![입력창 위 띠 — Now · Decisions, 두 번째 줄에 마우스를 올린 모습](docs/band.svg)
+그래서 입력창 바로 위에 작은 띠를 하나 붙였습니다. 띠에는 두 가지만 보입니다.
 
-`Show board` 나 `/board` 로 여는 대시보드 — 이 mod 가 켜진 모든 세션이 모인다.
+- **Now** : 이 세션에서 지금 하고 있는 일
+- **Decisions** : 내가 정해 줘야 Claude 가 다음으로 넘어갈 수 있는 것들
 
-![세션 대시보드 — 세션별 Now 카드와 Decisions 목록](docs/board.svg)
+![입력창 위 띠. 두 번째 줄에 마우스를 올린 모습](docs/band.svg)
 
-- 띠: 핑크 `Now` · 하늘색 `Decisions` 딱지, 정할 것마다 `×` 로 빼기, 아래 줄 오른쪽에 `Fold` · `Show board` 단추
-- `/board` (또는 `[Board]`): 이 mod 가 켜진 모든 세션의 Now · Decisions 를 모아 보여 주는 옆 창
-- 세션 내용은 `~/.claude/session-board/<세션 id>.json` 에 적힌다. 끝난 세션과 하루 넘게 갱신이 없는 세션은 빠진다.
-- Claude 에게 주는 안내문과 화면 글은 한국어다.
+띠는 제가 직접 쓰지 않습니다. 세션 안의 Claude 가 새 일을 시작하거나, 단계가 바뀌거나, 저에게 뭔가를 물어볼 때마다 `set_board` 도구로 알아서 고쳐 둡니다. 제가 답을 해서 정해진 것은 목록에서 빠지고요.
+
+## 여러 세션을 한눈에
+
+`Show board` 를 누르거나 `/board` 를 치면 옆에 대시보드가 열립니다. 이 mod 가 켜진 세션이 모두 여기 모입니다. 위쪽 **Now** 에는 세션마다 무슨 일을 하고 있는지가 카드로, 아래쪽 **Decisions** 에는 세션별로 남은 결정이 정리돼 있습니다.
+
+![세션 대시보드. 세션별 Now 카드와 Decisions 목록](docs/board.svg)
+
+세션 이름은 그 세션이 열린 폴더 이름입니다. 하루 넘게 소식이 없는 세션과 끝난 세션은 저절로 빠집니다.
+
+## 쓰다 보면 알게 되는 것들
+
+- 이제는 상관없어진 결정이 남아 있으면 줄 끝의 `×` 를 누르면 됩니다. 마우스를 올리면 그 줄이 연한 하늘색으로 바뀌어서 어느 줄을 지우는지 헷갈리지 않습니다. 한 번 뺀 항목은 Claude 가 같은 문장으로 다시 넣으려고 해도 들어오지 않습니다.
+- 띠가 길어서 거슬리면 `Fold` 로 한 줄로 접어 둘 수 있습니다.
+- 대시보드에서는 다른 세션의 결정도 뺄 수 있습니다. 그 세션 띠에서도 15초 안에 사라집니다.
+- 각 세션이 적은 내용은 `~/.claude/session-board/` 아래에 세션마다 JSON 파일 하나로 남습니다. 컴퓨터 밖으로는 아무것도 보내지 않습니다.
 
 ## 설치
 
-Claude Code 터미널 입력창에서:
+Claude Code 입력창에서 이렇게 치면 됩니다.
 
 ```
 /plugin install session-board --marketplace keh7264/session-board
 ```
 
-셸에서:
+셸에서 하고 싶다면:
 
 ```
 claude plugin install session-board --marketplace keh7264/session-board
 ```
 
-데스크톱 앱(`/plugin` 이 안 될 때): 입력창 옆 + → Plugins → Add marketplace 에 `keh7264/session-board` → Add plugin.
+데스크톱 앱처럼 `/plugin` 이 안 되는 곳에서는 입력창 옆 `+` → Plugins → Add marketplace 에 `keh7264/session-board` 를 넣고 Add plugin 을 누르면 됩니다.
 
-설치한 뒤 새로 여는 세션부터 켜진다.
+설치한 다음 새로 여는 세션부터 켜집니다. 이미 열어 둔 세션은 `/reload-plugins` 를 한 번 쳐 주세요.
+
+## 알아 두면 좋은 점
+
+- 화면 글과 Claude 에게 주는 안내가 한국어로 되어 있습니다. 다른 언어로 쓰고 싶다면 `hooks/register.tsx` 위쪽의 `GUIDE` 와 화면 글을 바꾸면 됩니다.
+- 띠가 얼마나 잘 맞는지는 결국 Claude 가 얼마나 부지런히 고쳐 두느냐에 달려 있습니다. 가끔 늦게 바뀌면 "띠 갱신해 줘" 한마디면 됩니다.
+- 대시보드는 이 mod 가 켜진 세션만 보여 줍니다.
 
 ## License
 
