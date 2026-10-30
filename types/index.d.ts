@@ -6,7 +6,9 @@ export type Board = {
   carriedFrom?: number
 }
 
-export type Entry = Board & { sessionId: string; label: string }
+export type OrcaPlace = { terminal: string; paneKey?: string; bin?: string }
+
+export type Entry = Board & { sessionId: string; label: string; orca?: OrcaPlace }
 
 declare module 'claude-code' {
   interface PluginState {

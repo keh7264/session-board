@@ -42,9 +42,17 @@ async function carryPath($: EngineInterface) {
   return `${await dir($)}/carry/${cwd.replace(/[^A-Za-z0-9._-]/g, '_')}.json`
 }
 
+async function orcaPlace($: EngineInterface) {
+  const terminal = await $.env.get('ORCA_TERMINAL_HANDLE')
+  if (!terminal) return undefined
+  const paneKey = (await $.env.get('ORCA_PANE_KEY')) ?? undefined
+  const bin = (await $.env.get('ORCA_CLI_BIN_DIR')) ?? undefined
+  return { terminal, paneKey, bin }
+}
+
 async function publish($: EngineInterface, b: Board) {
   const sessionId = await $.session.id()
-  const entry: Entry = { ...b, sessionId, label: await label($) }
+  const entry: Entry = { ...b, sessionId, label: await label($), orca: await orcaPlace($) }
   await $.fs.write(`${await dir($)}/${sessionId}.json`, JSON.stringify(entry))
   await $.fs.write(await carryPath($), JSON.stringify(b))
 }
@@ -61,6 +69,27 @@ async function loadCarry($: EngineInterface) {
     await update($, board, () => next)
     await publish($, next)
   } catch {}
+}
+
+export function findTerminal(listJson: string, paneKey: string) {
+  const list = JSON.parse(listJson) as { result?: { terminals?: { handle: string; tabId: string; leafId: string }[] } }
+  return list.result?.terminals?.find(t => `${t.tabId}:${t.leafId}` === paneKey)?.handle
+}
+
+async function goToSession($: EngineInterface, x: Entry) {
+  if (!x.orca) return $.ui.toast('이동할 자리를 모른다. 그 세션에서 /reload-plugins 를 한 번 쳐 주세요.')
+  const orca = x.orca.bin ? `${x.orca.bin}/orca` : 'orca'
+  const go = (handle: string) => $.process.run([orca, 'terminal', 'switch', '--terminal', handle, '--json'])
+  try {
+    if ((await go(x.orca.terminal)).exitCode === 0) return
+    // Orca 를 다시 켜면 핸들이 바뀌므로 패널 자리로 새 핸들을 찾는다.
+    if (x.orca.paneKey) {
+      const list = await $.process.run([orca, 'terminal', 'list', '--json'])
+      const handle = findTerminal(list.stdout, x.orca.paneKey)
+      if (handle && (await go(handle)).exitCode === 0) return
+    }
+  } catch {}
+  $.ui.toast(`${x.label} 세션으로 가지 못했다. 터미널이 닫혔을 수 있다.`)
 }
 
 function boardNote(b: Board | null) {
@@ -172,6 +201,12 @@ export const register: Register = on => {
       isDeferred: false,
     })
     await loadCarry($)
+    const current = await read($, board)
+    if (current) {
+      try {
+        await publish($, current)
+      } catch {}
+    }
     await $.command.register({ name: 'board', description: '모든 세션의 하는 일과 정할 것을 옆 창에 띄운다', immediate: true })
     if (e.isInteractive) {
       await loadOthers($)
@@ -247,6 +282,12 @@ export const register: Register = on => {
     ]
     const withDecisions = entries.filter(x => x.decisions.length > 0)
     const total = withDecisions.reduce((n, x) => n + x.decisions.length, 0)
+    const jump = (x: Entry & { isMine: boolean }, key: string, text: JSX.Element) =>
+      x.isMine ? text : (
+        <Box key={`frame-${key}`} flexShrink={1}>
+          <Button key={key} plain hover={{ underline: true }} onPress={() => void goToSession($, x)}>{text}</Button>
+        </Box>
+      )
 
     return (
       <Box flexDirection="column">
@@ -265,16 +306,16 @@ export const register: Register = on => {
           >
             <Box key="title" justifyContent="space-between" columnGap={1}>
               <Box flexShrink={1} columnGap={1}>
-                <Text color={x.isMine ? PINK : 'text'} bold>{x.label}</Text>
+                {jump(x, 'go-title', <Text color={x.isMine ? PINK : 'text'} bold>{x.label}</Text>)}
                 {x.isMine ? <Text color={PINK}>· 이 세션</Text> : null}
               </Box>
               <Box flexShrink={0}><Text dimColor>{ago(now, x.updatedAt)}</Text></Box>
             </Box>
-            <Box key="task"><Text>{x.task}</Text></Box>
+            <Box key="task">{jump(x, 'go-task', <Text>{x.task}</Text>)}</Box>
             {x.doing ? (
               <Box key="doing" columnGap={1}>
                 <Box flexShrink={0}><Text dimColor>└</Text></Box>
-                <Box flexShrink={1}><Text dimColor italic>{x.doing}</Text></Box>
+                <Box flexShrink={1}>{jump(x, 'go-doing', <Text dimColor italic>{x.doing}</Text>)}</Box>
               </Box>
             ) : null}
           </Box>
@@ -288,14 +329,14 @@ export const register: Register = on => {
         {withDecisions.map(x => (
           <Box key={`dec-${x.sessionId}`} flexDirection="column" marginBottom={1}>
             <Box key="title" columnGap={1}>
-              <Text color={x.isMine ? PINK : 'text'} bold>{x.label}</Text>
+              {jump(x, 'go-dec-title', <Text color={x.isMine ? PINK : 'text'} bold>{x.label}</Text>)}
               <Text dimColor>{`${x.decisions.length}`}</Text>
             </Box>
             {x.decisions.map((d, i) => (
               <Box key={`d-${i}`} columnGap={1} hover={{ scope: `row-${x.sessionId}-${i}`, backgroundColor: SKY_SOFT }}>
                 <Box flexShrink={0}><Text color={SKY} hover={{ scope: `row-${x.sessionId}-${i}`, color: SKY_DEEP, backgroundColor: SKY_SOFT }}>▎</Text></Box>
                 <Box flexShrink={0} width={2}><Text color={SKY} bold hover={{ scope: `row-${x.sessionId}-${i}`, color: SKY_DEEP, backgroundColor: SKY_SOFT }}>{`${i + 1}`}</Text></Box>
-                <Box flexShrink={1} flexGrow={1}><Text hover={{ scope: `row-${x.sessionId}-${i}`, color: INK, backgroundColor: SKY_SOFT }}>{d}</Text></Box>
+                <Box flexShrink={1} flexGrow={1}>{jump(x, `go-d-${i}`, <Text hover={{ scope: `row-${x.sessionId}-${i}`, color: INK, backgroundColor: SKY_SOFT }}>{d}</Text>)}</Box>
                 <Box key={`frame-x-${i}`} flexShrink={0}>
                   <Button key={`x-${i}`} plain hover={{ bold: true, color: SKY_DEEP }} onPress={() => void dismiss($, x.sessionId, d)}>
                     <Text color={SKY} hover={{ scope: `row-${x.sessionId}-${i}`, color: SKY_DEEP, bold: true, backgroundColor: SKY_SOFT }}>×</Text>
