@@ -15,6 +15,7 @@ const SKY = '#6EC6FF'
 const INK = '#1F1F2E'
 const SKY_SOFT = '#D8F0FF'
 const SKY_DEEP = '#1E78B4'
+const LIME = '#B8E986'
 const STALE_MS = 24 * 60 * 60 * 1000
 const CARRY_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -22,7 +23,7 @@ const GUIDE = [
   '# 세션 띠 (session-board)',
   `사용자 입력창 위에 "지금 하는 일"과 "사용자가 정할 것"을 보여 주는 띠가 있다 (다른 세션의 대시보드 /board 에도 모인다). ${TOOL} 로 갱신한다.`,
   '- 새 일을 시작할 때, 하는 단계가 크게 바뀔 때, 사용자에게 고를 것을 묻거나 사용자가 답해서 정할 것이 바뀔 때 부른다. 같은 내용이면 다시 부르지 않는다.',
-  '- task: 이 세션의 큰 일 한 줄. doing: 지금 하는 단계 한 줄(없으면 빈 문자열). decisions: 사용자가 아직 답하지 않은 결정 전체 목록 (짧은 질문 한 줄씩. 사용자가 정했거나, 일이 바뀌어 더는 필요 없어진 것은 빼고 보낸다).',
+  '- task: 이 세션의 큰 일 한 줄. doing: 지금 하는 단계 한 줄(없으면 빈 문자열). decisions: 사용자가 아직 답하지 않은 결정 전체 목록 (짧은 질문 한 줄씩. 사용자가 정했거나, 일이 바뀌어 더는 필요 없어진 것은 빼고 보낸다). next: 이 세션에서 앞으로 할 일 (차례대로 한 줄씩, 끝낸 것은 빼고 보낸다).',
   '- 띠 갱신은 사용자에게 따로 알리지 않는다. 글은 사용자의 말(한국어)로 짧게.',
 ].join('\n')
 
@@ -64,7 +65,7 @@ async function loadCarry($: EngineInterface) {
     if (!(await $.fs.exists(path))) return
     const b = JSON.parse(await $.fs.read(path)) as Board
     if ((await $.clock.now()) - b.updatedAt > CARRY_MS) return
-    if (!b.task && b.decisions.length === 0) return
+    if (!b.task && b.decisions.length === 0 && !(b.next ?? []).length) return
     const next: Board = { ...b, doing: null, carriedFrom: b.carriedFrom ?? b.updatedAt }
     await update($, board, () => next)
     await publish($, next)
@@ -99,6 +100,7 @@ function boardNote(b: Board | null) {
     b.carriedFrom ? '지금 띠 (지난 세션에서 이어받은 내용. 이 세션에서 아직 고치지 않았다):' : '지금 띠:',
     `- task: ${b.task}`,
     ...(b.decisions.length ? b.decisions.map(d => `- decision: ${d}`) : ['- decision: 없음']),
+    ...(b.next ?? []).map(n => `- next: ${n}`),
     b.carriedFrom ? '이어받은 결정 중 이미 끝났거나 필요 없어진 것이 보이면 다음 갱신 때 뺀다.' : '',
   ].filter(Boolean).join('\n')
 }
@@ -188,13 +190,14 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'set_board',
       description:
-        '입력창 위 띠에 이 세션의 지금 하는 일과 사용자가 정할 것 목록을 적는다. 매번 전체를 보낸다 (decisions 는 남은 것 전부).',
+        '입력창 위 띠에 이 세션의 지금 하는 일, 앞으로 할 일, 사용자가 정할 것 목록을 적는다. 매번 전체를 보낸다 (next · decisions 는 남은 것 전부).',
       inputSchema: {
         type: 'object',
         properties: {
           task: { type: 'string', description: '이 세션의 큰 일 한 줄' },
           doing: { type: 'string', description: '지금 하는 단계 한 줄, 없으면 빈 문자열' },
           decisions: { type: 'array', items: { type: 'string' }, description: '사용자가 아직 정하지 않은 것, 한 줄씩' },
+          next: { type: 'array', items: { type: 'string' }, description: '이 세션에서 앞으로 할 일, 차례대로 한 줄씩 (끝낸 것은 빼고)' },
         },
         required: ['task', 'decisions'],
       },
@@ -242,13 +245,14 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
-    const input = e as unknown as { task?: unknown; doing?: unknown; decisions?: unknown }
+    const input = e as unknown as { task?: unknown; doing?: unknown; decisions?: unknown; next?: unknown }
     const gone = await readDismissed($, await $.session.id())
     const asked = Array.isArray(input.decisions) ? input.decisions.map(d => String(d).trim()).filter(Boolean) : []
     const next: Board = {
       task: String(input.task ?? '').trim(),
       doing: typeof input.doing === 'string' && input.doing.trim() ? input.doing.trim() : null,
       decisions: asked.filter(d => !gone.includes(d)),
+      next: Array.isArray(input.next) ? input.next.map(n => String(n).trim()).filter(Boolean) : [],
       updatedAt: await $.clock.now(),
     }
     await update($, board, () => next)
@@ -318,6 +322,12 @@ export const register: Register = on => {
                 <Box flexShrink={1}>{jump(x, 'go-doing', <Text dimColor italic>{x.doing}</Text>)}</Box>
               </Box>
             ) : null}
+            {(x.next ?? []).map((n, i) => (
+              <Box key={`next-${i}`} columnGap={1}>
+                <Box flexShrink={0}><Text color={LIME}>{i === 0 ? 'Next' : '    '}</Text></Box>
+                <Box flexShrink={1}><Text dimColor>{n}</Text></Box>
+              </Box>
+            ))}
           </Box>
         ))}
 
@@ -360,6 +370,7 @@ export const register: Register = on => {
     const rest = await read($, others)
     const restDecisions = rest.reduce((n, x) => n + x.decisions.length, 0)
     const count = b.decisions.length
+    const nexts = b.next ?? []
     const now = await $.clock.now()
     const boardOpen = await read($, isBoardOpen)
 
@@ -398,6 +409,7 @@ export const register: Register = on => {
             <Box flexShrink={1} columnGap={1}>
               {chip('now', 'Now', PINK)}
               <Box flexShrink={1}><Text bold wrap="truncate-end">{b.task}</Text></Box>
+              {nexts.length ? chip('next', `Next ${nexts.length}`, LIME) : null}
               {chip('dec', `Decisions ${count}`, count ? SKY : 'inactive')}
             </Box>
             {actions}
@@ -419,6 +431,18 @@ export const register: Register = on => {
           <Box key="doing" columnGap={1} paddingLeft={1}>
             <Box flexShrink={0}><Text color={PINK}>└</Text></Box>
             <Box flexShrink={1}><Text dimColor italic>{b.doing}</Text></Box>
+          </Box>
+        ) : null}
+        {nexts.length ? (
+          <Box key="next" flexDirection="column">
+            <Box key="next-head">{chip('next', `Next ${nexts.length}`, LIME)}</Box>
+            {nexts.map((n, i) => (
+              <Box key={`n-${i}`} columnGap={1}>
+                <Box flexShrink={0}><Text color={LIME}>▎</Text></Box>
+                <Box flexShrink={0} width={2}><Text color={LIME} bold>{`${i + 1}`}</Text></Box>
+                <Box flexShrink={1}><Text dimColor>{n}</Text></Box>
+              </Box>
+            ))}
           </Box>
         ) : null}
         <Box key="decisions-head">

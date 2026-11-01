@@ -2,6 +2,7 @@ export type Board = {
   task: string
   doing: string | null
   decisions: string[]
+  next?: string[]
   updatedAt: number
   carriedFrom?: number
 }
